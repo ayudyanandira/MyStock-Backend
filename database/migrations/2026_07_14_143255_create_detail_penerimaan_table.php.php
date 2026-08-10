@@ -9,7 +9,6 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('detail_penerimaan', function (Blueprint $table) {
-
             $table->id();
 
             $table->foreignId('penerimaan_id')
@@ -22,10 +21,11 @@ return new class extends Migration
                 ->restrictOnDelete();
 
             $table->decimal('jumlah_pesanan', 12, 2);
-            $table->decimal('jumlah_diterima', 12, 2);
-            $table->decimal('selisih', 12, 2);
-            $table->string('status', 10);
-            $table->string('kondisi', 100);
+            // ✏️ Bikin default 0 & nullable agar tidak error saat pembuat PO baru menginput
+            $table->decimal('jumlah_diterima', 12, 2)->default(0); 
+            $table->decimal('selisih', 12, 2)->default(0);
+            $table->string('status', 20)->default('Sesuai'); // Sesuai / Selisih
+            $table->string('kondisi', 100)->nullable()->default('Baik');
             $table->text('keterangan')->nullable();
 
             $table->timestamps();

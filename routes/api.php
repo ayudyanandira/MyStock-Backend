@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuditLogController;
+use App\Http\Controllers\Api\LaporanController;
 use App\Http\Controllers\Api\AuthController; // <-- Tambahkan AuthController
 use App\Http\Controllers\Api\BarangController;
 use App\Http\Controllers\Api\DashboardController;
@@ -21,7 +22,7 @@ use Illuminate\Support\Facades\Route;
 | Public Routes (Tanpa Auth / Tidak Perlu Token)
 |--------------------------------------------------------------------------
 */
-Route::post('login', [AuthController::class, 'login']);
+Route::post('login', [AuthController::class, 'login'])->name('login');
 
 
 /*
@@ -38,6 +39,8 @@ Route::middleware('auth:sanctum')->group(function (): void {
     // Dashboard
     Route::get('dashboard', DashboardController::class);
 
+    Route::put('penerimaan/{id}/confirm', [PenerimaanController::class, 'confirmReceipt']);
+    
     // Read-only untuk semua user terautentikasi (Admin & Staff)
     Route::apiResource('penerimaan', PenerimaanController::class)->only(['index', 'show']);
     Route::apiResource('penggunaan', PenggunaanController::class)->only(['index', 'show']);
@@ -62,7 +65,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
         Route::apiResource('barang', BarangController::class)->except(['index', 'show']);
         Route::apiResource('supplier', SupplierController::class)->except(['index', 'show']);
         Route::apiResource('stok-opname', StokOpnameController::class)->only(['store']);
-        
+        Route::get('laporan/export', [LaporanController::class, 'export']);
         // Audit Logs & User Management
         Route::apiResource('audit-logs', AuditLogController::class)->only(['index', 'show']);
         Route::get('roles', [RoleController::class, 'index']);

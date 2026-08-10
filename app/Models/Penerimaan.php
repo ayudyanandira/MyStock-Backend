@@ -14,18 +14,17 @@ class Penerimaan extends Model
     protected $table = 'penerimaan';
 
     protected $fillable = [
-
         'nomor_transaksi',
-
         'supplier_id',
-
         'tanggal',
-
+        'tanggal_terima',
+        'status', // 'pending', 'completed', 'cancelled'
     ];
 
     protected $casts = [
 
         'tanggal' => 'date',
+        'tanggal_terima' => 'date',
     ];
 
     /*
@@ -42,7 +41,7 @@ class Penerimaan extends Model
         );
     }
 
-    public function detailPenerimaan(): HasMany
+    public function details(): HasMany
     {
         return $this->hasMany(
             DetailPenerimaan::class,

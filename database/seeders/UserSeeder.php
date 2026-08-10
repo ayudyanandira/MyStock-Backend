@@ -20,9 +20,9 @@ class UserSeeder extends Seeder
 
             'name'=>'Administrator',
 
-            'email'=>'admin@mystock.test',
+            'email'=>'admin@mystock.com',
 
-            'password'=>'password',
+            'password'=>bcrypt('admin123'),
 
             'is_active'=>true
         ]);
