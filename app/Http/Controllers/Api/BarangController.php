@@ -12,11 +12,19 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class BarangController extends Controller
 {
-    public function index(): AnonymousResourceCollection
+    public function index(\Illuminate\Http\Request $request): AnonymousResourceCollection
     {
-        // Panggil relasi kategori & satuan agar tidak terkena N+1 query problem
-        $barang = Barang::with(['kategori', 'satuan'])->latest()->paginate(10);
-        return BarangResource::collection($barang);
+        $query = Barang::with(['kategori', 'satuan'])->orderBy('nama_barang', 'asc');
+
+        // Jika frontend minta semua data (misal untuk Dropdown PO)
+        if ($request->has('all') && $request->boolean('all')) {
+            return BarangResource::collection($query->get());
+        }
+
+        // Default pagination dinaikkan dari 10 jadi 50 atau sesuai request per_page
+        $perPage = $request->get('per_page', 50);
+
+        return BarangResource::collection($query->paginate($perPage));
     }
 
     public function store(StoreBarangRequest $request): JsonResponse
