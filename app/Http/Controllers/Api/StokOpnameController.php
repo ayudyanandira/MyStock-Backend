@@ -53,8 +53,8 @@ class StokOpnameController extends Controller
         foreach ($request->items as $item) {
             $barang = Barang::findOrFail($item['barang_id']);
             
-            $stokSistem = $barang->stok;
-            $stokFisik  = $item['stok_fisik'];
+            $stokSistem = (float)$barang->stok;
+            $stokFisik  = (float)$item['stok_fisik'];
             $selisih    = $stokFisik - $stokSistem;
 
             // Simpan Detail

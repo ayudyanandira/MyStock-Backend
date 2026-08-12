@@ -29,7 +29,8 @@ class PenerimaanController extends Controller
             'tanggal_pesan'          => 'nullable|date',
             'items'                  => 'required|array|min:1',
             'items.*.barang_id'      => 'required|exists:barang,id',
-            'items.*.jumlah_pesanan' => 'required|numeric|min:1',
+            'items.*.jumlah_pesanan' => 'required|numeric|min:0.01',
+            'items.*.jumlah_diterima' => 'nullable|numeric|min:0',
         ]);
 
         $penerimaan = null;

@@ -32,10 +32,8 @@ class Barang extends Model
 
     protected $casts = [
 
-        'stok'=>'integer',
-
-        'stok_minimum'=>'integer',
-
+        'stok'=>'float',
+        'stok_minimum'=>'float',
         'is_active'=>'boolean'
     ];
 
