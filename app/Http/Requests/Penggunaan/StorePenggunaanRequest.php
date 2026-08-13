@@ -18,7 +18,7 @@ class StorePenggunaanRequest extends FormRequest
             'keterangan' => ['nullable', 'string', 'max:65535'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.barang_id' => ['required', 'integer', 'distinct', 'exists:barang,id'],
-            'items.*.jumlah' => ['required', 'integer', 'min:1'],
+            'items.*.jumlah' => ['required', 'numeric', 'min:1'],
             'items.*.catatan' => ['nullable', 'string', 'max:65535'],
         ];
     }
