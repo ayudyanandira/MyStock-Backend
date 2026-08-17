@@ -14,6 +14,8 @@ use App\Http\Controllers\Api\StockMovementController;
 use App\Http\Controllers\Api\StokOpnameController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\StokController;
+Use App\Http\Controllers\Api\StokMutasiController;
 use App\Http\Middleware\EnsureAdmin;
 use Illuminate\Support\Facades\Route;
 
@@ -40,6 +42,9 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::get('dashboard', DashboardController::class);
 
     Route::put('penerimaan/{id}/confirm', [PenerimaanController::class, 'confirmReceipt']);
+    
+    Route::get('/stok-mutasi', [App\Http\Controllers\Api\StokMutasiController::class, 'index']);
+    Route::get('/stock-movements', [StockMovementController::class, 'index']);
     
     // Read-only untuk semua user terautentikasi (Admin & Staff)
     Route::apiResource('penerimaan', PenerimaanController::class)->only(['index', 'show']);

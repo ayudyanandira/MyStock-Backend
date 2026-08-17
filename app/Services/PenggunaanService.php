@@ -6,7 +6,7 @@ use App\Models\AuditLog;
 use App\Models\Barang;
 use App\Models\DetailPenggunaan;
 use App\Models\Penggunaan;
-use App\Models\StockMovement;
+use App\Services\StokService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -39,7 +39,12 @@ class PenggunaanService
     public function store(array $data): Penggunaan
     {
         return DB::transaction(function () use ($data) {
-            $penggunaan = Penggunaan::create(['nomor_transaksi' => $this->number(), 'tanggal' => $data['tanggal'], 'keterangan' => $data['keterangan'] ?? null, 'user_id' => Auth::id()]);
+            $penggunaan = Penggunaan::create([
+                'nomor_transaksi' => $this->number(), 
+                'tanggal' => $data['tanggal'], 
+                'keterangan' => $data['keterangan'] ?? null, 
+                'user_id' => Auth::id()
+            ]);
             $this->addItems($penggunaan, $data['items']);
             $this->audit('CREATE', $penggunaan->id);
 
@@ -76,28 +81,53 @@ class PenggunaanService
     {
         foreach ($items as $item) {
             $barang = Barang::lockForUpdate()->findOrFail($item['barang_id']);
+            
             if ($barang->stok < $item['jumlah']) {
                 throw ValidationException::withMessages(['items' => "Stok {$barang->nama_barang} tidak mencukupi."]);
-            } $before = $barang->stok;
-            $after = $before - $item['jumlah'];
-            DetailPenggunaan::create(['penggunaan_id' => $penggunaan->id, 'barang_id' => $barang->id, 'jumlah' => $item['jumlah'], 'catatan' => $item['catatan'] ?? null]);
-            $barang->update(['stok' => $after]);
-            StockMovement::create(['barang_id' => $barang->id, 'reference_type' => 'PENGGUNAAN', 'reference_id' => $penggunaan->id, 'qty_in' => 0, 'qty_out' => $item['jumlah'], 'stock_before' => $before, 'stock_after' => $after, 'created_by' => Auth::id()]);
+            }
+
+            // 1. Simpan detail penggunaan
+            DetailPenggunaan::create([
+                'penggunaan_id' => $penggunaan->id, 
+                'barang_id'     => $barang->id, 
+                'jumlah'        => $item['jumlah'], 
+                'catatan'       => $item['catatan'] ?? null
+            ]);
+
+            // 2. Potong stok + Catat Mutasi Log lewat StokService
+            StokService::catatMutasi(
+                $barang->id,
+                'KELUAR',
+                $item['jumlah'],
+                $penggunaan->nomor_transaksi,
+                'Diolah untuk ' . ($penggunaan->keterangan ?? 'Menu Dapur')
+            );
         }
     }
 
     private function restoreStock(Penggunaan $penggunaan): void
     {
         foreach ($penggunaan->detailPenggunaan as $detail) {
-            $barang = Barang::lockForUpdate()->findOrFail($detail->barang_id);
-            $barang->update(['stok' => $barang->stok + $detail->jumlah]);
-            StockMovement::where(['reference_type' => 'PENGGUNAAN', 'reference_id' => $penggunaan->id, 'barang_id' => $barang->id])->delete();
+            // Mengembalikan stok & mencatat penyesuaian saat edit/hapus
+            StokService::catatMutasi(
+                $detail->barang_id,
+                'MASUK',
+                $detail->jumlah,
+                'RESTORE-' . $penggunaan->nomor_transaksi,
+                'Pengembalian Stok (Batal/Edit Penggunaan)'
+            );
         }
     }
 
     private function audit(string $activity, int $id): void
     {
-        AuditLog::create(['user_id' => Auth::id(), 'modul' => 'PENGGUNAAN', 'aktivitas' => $activity, 'reference_id' => $id, 'ip_address' => request()->ip()]);
+        AuditLog::create([
+            'user_id'      => Auth::id(), 
+            'modul'        => 'PENGGUNAAN', 
+            'aktivitas'    => $activity, 
+            'reference_id' => $id, 
+            'ip_address'   => request()->ip()
+        ]);
     }
 
     private function number(): string
@@ -108,6 +138,7 @@ class PenggunaanService
             if (! Penggunaan::where('nomor_transaksi', $number)->exists()) {
                 return $number;
             }
-        } throw ValidationException::withMessages(['nomor_transaksi' => 'Nomor transaksi tidak dapat dibuat.']);
+        } 
+        throw ValidationException::withMessages(['nomor_transaksi' => 'Nomor transaksi tidak dapat dibuat.']);
     }
 }

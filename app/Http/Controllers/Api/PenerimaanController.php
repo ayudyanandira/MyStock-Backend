@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Penerimaan;
 use App\Models\DetailPenerimaan;
-use App\Models\Barang;
+use App\Services\StokService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -22,25 +22,23 @@ class PenerimaanController extends Controller
     // 2. Simpan PO Baru (Generate Nomor PO Otomatis di Backend)
     public function store(Request $request)
     {
-        // Validasi tanpa perlu mengecek nomor_transaksi dari frontend
         $request->validate([
-            'supplier_id'            => 'required|exists:supplier,id',
-            'tanggal'                => 'nullable|date',
-            'tanggal_pesan'          => 'nullable|date',
-            'items'                  => 'required|array|min:1',
-            'items.*.barang_id'      => 'required|exists:barang,id',
-            'items.*.jumlah_pesanan' => 'required|numeric|min:0.01',
+            'supplier_id'             => 'required|exists:supplier,id',
+            'tanggal'                 => 'nullable|date',
+            'tanggal_pesan'           => 'nullable|date',
+            'items'                   => 'required|array|min:1',
+            'items.*.barang_id'       => 'required|exists:barang,id',
+            'items.*.jumlah_pesanan'  => 'required|numeric|min:0.01',
             'items.*.jumlah_diterima' => 'nullable|numeric|min:0',
         ]);
 
         $penerimaan = null;
 
         DB::transaction(function () use ($request, &$penerimaan) {
-            // A. Auto-generate nomor transaksi unik: PO-YYYYMMDD-XXXX
+            // Auto-generate nomor transaksi unik: PO-YYYYMMDD-XXXX
             $today = Carbon::now()->format('Ymd');
             $prefix = 'PO-' . $today . '-';
 
-            // Ambil nomor transaksi terakhir di hari yang sama
             $lastTransaction = Penerimaan::where('nomor_transaksi', 'LIKE', $prefix . '%')
                 ->orderBy('id', 'desc')
                 ->first();
@@ -53,11 +51,9 @@ class PenerimaanController extends Controller
             }
 
             $nomorTransaksiOtomatis = $prefix . $nextNumber;
-
-            // Sesuaikan input tanggal (fallback ke tanggal hari ini jika kosong)
             $tanggalTrans = $request->tanggal ?? $request->tanggal_pesan ?? Carbon::now()->toDateString();
 
-            // B. Simpan Header Penerimaan dengan status 'pending'
+            // Simpan Header
             $penerimaan = Penerimaan::create([
                 'nomor_transaksi' => $nomorTransaksiOtomatis,
                 'supplier_id'     => $request->supplier_id,
@@ -65,16 +61,16 @@ class PenerimaanController extends Controller
                 'status'          => 'pending',
             ]);
 
-            // C. Simpan Detail Pesanan
+            // Simpan Detail Pesanan
             foreach ($request->items as $item) {
                 DetailPenerimaan::create([
-                    'penerimaan_id'  => $penerimaan->id,
-                    'barang_id'      => $item['barang_id'],
-                    'jumlah_pesanan' => $item['jumlah_pesanan'],
-                    'jumlah_diterima'=> 0,
-                    'selisih'        => $item['jumlah_pesanan'],
-                    'status'         => 'Pending',
-                    'kondisi'        => 'Belum Diterima',
+                    'penerimaan_id'   => $penerimaan->id,
+                    'barang_id'       => $item['barang_id'],
+                    'jumlah_pesanan'  => $item['jumlah_pesanan'],
+                    'jumlah_diterima' => 0,
+                    'selisih'         => $item['jumlah_pesanan'],
+                    'status'          => 'Pending',
+                    'kondisi'         => 'Belum Diterima',
                 ]);
             }
         });
@@ -85,7 +81,7 @@ class PenerimaanController extends Controller
         ], 201);
     }
 
-    // 3. Konfirmasi Penerimaan Barang (STOK BERTAMBAH OTOMATIS)
+    // 3. Konfirmasi Penerimaan Barang (LOG MUTASI & STOK AUTOMATIC)
     public function confirmReceipt(Request $request, $id)
     {
         $penerimaan = Penerimaan::findOrFail($id);
@@ -97,7 +93,7 @@ class PenerimaanController extends Controller
         $request->validate([
             'tanggal_terima'          => 'required|date',
             'items'                   => 'required|array|min:1',
-            'items.*.barang_id'       => 'required',
+            'items.*.barang_id'       => 'required|exists:barang,id',
             'items.*.jumlah_diterima' => 'required|numeric|min:0',
         ]);
 
@@ -107,11 +103,14 @@ class PenerimaanController extends Controller
                             ->where('barang_id', $item['barang_id'])->first();
 
                 if ($detail) {
-                    $jmlDiterima = $item['jumlah_diterima'];
-                    $selisih = $detail->jumlah_pesanan - $jmlDiterima;
-                    $statusSesuai = $selisih == 0 ? 'Sesuai' : 'Selisih';
+                    $jmlDiterima = (float) $item['jumlah_diterima'];
+                    $jmlPesanan  = (float) $detail->jumlah_pesanan;
+                    $selisih     = $jmlPesanan - $jmlDiterima;
 
-                    // Update detail barang yang diterima
+                    // Toleransi desimal presisi untuk status sesuai/selisih
+                    $statusSesuai = abs($selisih) < 0.001 ? 'Sesuai' : 'Selisih';
+
+                    // Update detail penerimaan
                     $detail->update([
                         'jumlah_diterima' => $jmlDiterima,
                         'selisih'         => $selisih,
@@ -120,9 +119,15 @@ class PenerimaanController extends Controller
                         'keterangan'      => $item['keterangan'] ?? null,
                     ]);
 
-                    // Tambahkan stok barang jika diterima
+                    // Panggil StokService untuk update stok & catat ke log mutasi
                     if ($jmlDiterima > 0) {
-                        Barang::where('id', $item['barang_id'])->increment('stok', $jmlDiterima);
+                        StokService::catatMutasi(
+                            $item['barang_id'],
+                            'MASUK',
+                            $jmlDiterima,
+                            $penerimaan->nomor_transaksi,
+                            'Penerimaan Bahan Pangan dari Supplier'
+                        );
                     }
                 }
             }
@@ -134,7 +139,9 @@ class PenerimaanController extends Controller
             ]);
         });
 
-        return response()->json(['message' => 'Penerimaan barang berhasil dikonfirmasi! Stok telah diperbarui.']);
+        return response()->json([
+            'message' => 'Penerimaan barang berhasil dikonfirmasi! Stok dan Log Mutasi telah tercatat.'
+        ]);
     }
 
     // 4. Lihat Detail Nota/PO tertentu
