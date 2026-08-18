@@ -15,7 +15,7 @@ class PenerimaanController extends Controller
     // 1. Tampilkan Semua List Nota / PO
     public function index()
     {
-        $penerimaan = Penerimaan::with(['supplier', 'details.barang'])->latest()->get();
+        $penerimaan = Penerimaan::with(['supplier', 'details.barang.satuan'])->latest()->get();
         return response()->json(['data' => $penerimaan]);
     }
 
@@ -147,7 +147,7 @@ class PenerimaanController extends Controller
     // 4. Lihat Detail Nota/PO tertentu
     public function show($id)
     {
-        $penerimaan = Penerimaan::with(['supplier', 'details.barang'])->findOrFail($id);
+        $penerimaan = Penerimaan::with(['supplier', 'details.barang.satuan'])->findOrFail($id);
         return response()->json(['data' => $penerimaan]);
     }
 }
