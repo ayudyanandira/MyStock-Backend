@@ -9,6 +9,7 @@ use App\Services\StokService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class PenerimaanController extends Controller
 {
@@ -77,72 +78,92 @@ class PenerimaanController extends Controller
 
         return response()->json([
             'message' => 'Dokumen PO berhasil dibuat!',
-            'data'    => $penerimaan->load('details.barang')
+            'data'    => $penerimaan->load('details.barang.satuan')
         ], 201);
     }
 
-    // 3. Konfirmasi Penerimaan Barang (LOG MUTASI & STOK AUTOMATIC)
-    public function confirmReceipt(Request $request, $id)
-    {
-        $penerimaan = Penerimaan::findOrFail($id);
+    // 3. Konfirmasi Penerimaan Barang (LOG MUTASI, STOK AUTOMATIC & AUTO-DEDUCT PER ITEM)
+    // 3. Konfirmasi Penerimaan Barang (LOG MUTASI, STOK AUTOMATIC & AUTO-DEDUCT PER ITEM)
+public function confirmReceipt(Request $request, $id)
+{
+    $penerimaan = Penerimaan::findOrFail($id);
 
-        if ($penerimaan->status === 'completed') {
-            return response()->json(['message' => 'PO ini sudah pernah diproses sebelumnya!'], 400);
-        }
+    if ($penerimaan->status === 'completed') {
+        return response()->json(['message' => 'PO ini sudah pernah diproses sebelumnya!'], 400);
+    }
 
-        $request->validate([
-            'tanggal_terima'          => 'required|date',
-            'items'                   => 'required|array|min:1',
-            'items.*.barang_id'       => 'required|exists:barang,id',
-            'items.*.jumlah_diterima' => 'required|numeric|min:0',
-        ]);
+    $request->validate([
+        'tanggal_terima'                => 'required|date',
+        'items'                         => 'required|array|min:1',
+        'items.*.barang_id'             => 'required|exists:barang,id',
+        'items.*.jumlah_diterima'       => 'required|numeric|min:0',
+        'items.*.is_direct_consumption' => 'nullable|boolean', // Validasi boolean item
+    ]);
 
-        DB::transaction(function () use ($request, $penerimaan) {
-            foreach ($request->items as $item) {
-                $detail = DetailPenerimaan::where('penerimaan_id', $penerimaan->id)
-                            ->where('barang_id', $item['barang_id'])->first();
+    DB::transaction(function () use ($request, $penerimaan) {
+        foreach ($request->items as $item) {
+            Log::info('DEBUG CONFIRM ITEM:', [
+        'item' => $item,
+        'is_direct' => $item['is_direct_consumption'] ?? 'TIDAK ADA KEY'
+    ]);
 
-                if ($detail) {
-                    $jmlDiterima = (float) $item['jumlah_diterima'];
-                    $jmlPesanan  = (float) $detail->jumlah_pesanan;
-                    $selisih     = $jmlPesanan - $jmlDiterima;
+            $detail = DetailPenerimaan::where('penerimaan_id', $penerimaan->id)
+                                        ->where('barang_id', $item['barang_id'])->first();
 
-                    // Toleransi desimal presisi untuk status sesuai/selisih
-                    $statusSesuai = abs($selisih) < 0.001 ? 'Sesuai' : 'Selisih';
+            if ($detail) {
+                $jmlDiterima = (float) $item['jumlah_diterima'];
+                $jmlPesanan  = (float) $detail->jumlah_pesanan;
+                $selisih     = $jmlPesanan - $jmlDiterima;
 
-                    // Update detail penerimaan
-                    $detail->update([
-                        'jumlah_diterima' => $jmlDiterima,
-                        'selisih'         => $selisih,
-                        'status'          => $statusSesuai,
-                        'kondisi'         => $item['kondisi'] ?? 'Baik',
-                        'keterangan'      => $item['keterangan'] ?? null,
-                    ]);
+                $statusSesuai = abs($selisih) < 0.001 ? 'Sesuai' : 'Selisih';
 
-                    // Panggil StokService untuk update stok & catat ke log mutasi
-                    if ($jmlDiterima > 0) {
+                // AMBIL FLAG DIRECT CONSUMPTION DARI ITEM (BUKAN DARI ROOT REQUEST)
+                $isItemDirect = isset($item['is_direct_consumption']) ? filter_var($item['is_direct_consumption'], FILTER_VALIDATE_BOOLEAN) : false;
+
+                // Update detail penerimaan
+                $detail->update([
+                    'jumlah_diterima' => $jmlDiterima,
+                    'selisih'         => $selisih,
+                    'status'          => $statusSesuai,
+                    'kondisi'         => $item['kondisi'] ?? 'Baik',
+                    'keterangan'      => $item['keterangan'] ?? null,
+                ]);
+
+                if ($jmlDiterima > 0) {
+                    // 1. Catat Mutasi MASUK
+                    StokService::catatMutasi(
+                        (int) $item['barang_id'],
+                        'MASUK',
+                        $jmlDiterima,
+                        $penerimaan->nomor_transaksi,
+                        'Penerimaan Bahan Pangan dari Supplier'
+                    );
+
+                    // 2. Catat Mutasi KELUAR jika item dicentang (Auto-Deduct)
+                    if ($isItemDirect) {
                         StokService::catatMutasi(
-                            $item['barang_id'],
-                            'MASUK',
+                            (int) $item['barang_id'],
+                            'KELUAR',
                             $jmlDiterima,
-                            $penerimaan->nomor_transaksi,
-                            'Penerimaan Bahan Pangan dari Supplier'
+                            $penerimaan->nomor_transaksi . '-AUTO',
+                            'Direct Consumption (Langsung Digunakan untuk Menu Harian)'
                         );
                     }
                 }
             }
+        }
 
-            // Ubah Status PO menjadi Completed
-            $penerimaan->update([
-                'status'         => 'completed',
-                'tanggal_terima' => $request->tanggal_terima,
-            ]);
-        });
-
-        return response()->json([
-            'message' => 'Penerimaan barang berhasil dikonfirmasi! Stok dan Log Mutasi telah tercatat.'
+        // Ubah Status PO menjadi Completed
+        $penerimaan->update([
+            'status'         => 'completed',
+            'tanggal_terima' => $request->tanggal_terima,
         ]);
-    }
+    });
+
+    return response()->json([
+        'message' => 'Penerimaan barang berhasil dikonfirmasi! Stok dan Log Mutasi telah diperbarui.'
+    ]);
+}
 
     // 4. Lihat Detail Nota/PO tertentu
     public function show($id)

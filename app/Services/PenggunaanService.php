@@ -17,7 +17,7 @@ class PenggunaanService
 {
     public function index(Request $request): LengthAwarePaginator
     {
-        $query = Penggunaan::query()->with(['user', 'detailPenggunaan.barang'])->latest();
+        $query = Penggunaan::query()->with(['user', 'detailPenggunaan.barang.satuan'])->latest();
         if ($request->filled('tanggal_awal')) {
             $query->whereDate('tanggal', '>=', $request->input('tanggal_awal'));
         }
@@ -33,7 +33,7 @@ class PenggunaanService
 
     public function show(Penggunaan $penggunaan): Penggunaan
     {
-        return $penggunaan->load(['user', 'detailPenggunaan.barang']);
+        return $penggunaan->load(['user', 'detailPenggunaan.barang.satuan']);
     }
 
     public function store(array $data): Penggunaan
@@ -55,7 +55,7 @@ class PenggunaanService
     public function update(Penggunaan $penggunaan, array $data): Penggunaan
     {
         return DB::transaction(function () use ($penggunaan, $data) {
-            $penggunaan->load('detailPenggunaan');
+            $penggunaan->load('detailPenggunaan.barang.satuan');
             $this->restoreStock($penggunaan);
             $penggunaan->detailPenggunaan()->delete();
             $penggunaan->update(['tanggal' => $data['tanggal'], 'keterangan' => $data['keterangan'] ?? null]);
@@ -69,7 +69,7 @@ class PenggunaanService
     public function destroy(Penggunaan $penggunaan): void
     {
         DB::transaction(function () use ($penggunaan) {
-            $penggunaan->load('detailPenggunaan');
+            $penggunaan->load('detailPenggunaan.barang.satuan');
             $this->restoreStock($penggunaan);
             $penggunaan->detailPenggunaan()->delete();
             $this->audit('DELETE', $penggunaan->id);
