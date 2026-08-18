@@ -17,29 +17,31 @@ class BarangController extends Controller
     {
         $query = Barang::with(['kategori', 'satuan']);
 
-        // 1. Filter Pencarian Case-Insensitive untuk PostgreSQL
-        if ($request->filled('search')) {
-            $search = $request->input('search');
+        // 1. Tangkap parameter search jika suatu saat frontend mengirimnya
+        $search = $request->input('search') ?? $request->input('q') ?? $request->input('keyword');
+
+        if (!empty($search)) {
             $query->where(function ($q) use ($search) {
                 $q->where('nama_barang', 'ILIKE', "%{$search}%")
-                  ->orWhere('kode_barang', 'ILIKE', "%{$search}%");
+                ->orWhere('kode_barang', 'ILIKE', "%{$search}%");
             });
         }
 
-        // 2. Filter Kategori (opsional jika frontend mengirim kategori_id)
         if ($request->filled('kategori_id')) {
             $query->where('kategori_id', $request->kategori_id);
         }
 
-        // 3. Tetap Alphabetical A-Z
+        // 2. Urutkan A-Z
         $query->orderBy('nama_barang', 'asc');
 
-        // Jika frontend minta seluruh data (misal untuk dropdown)
-        if ($request->has('all') && $request->boolean('all')) {
+        // 3. KUNCI FIX: Kembalikan SEMUA data tanpa dipaginasi (atau set limit sangat tinggi)
+        // Ini membuat frontend menerima 100% data master barang untuk di-search di browser
+        if ($request->has('all') || $request->boolean('all') || !$request->has('per_page')) {
             return BarangResource::collection($query->get());
         }
 
-        $perPage = $request->get('per_page', 50);
+        // Jika frontend mengirim per_page khusus, naikkan batasnya menjadi 1000
+        $perPage = $request->get('per_page', 1000);
 
         return BarangResource::collection($query->paginate($perPage));
     }
