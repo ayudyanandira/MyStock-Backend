@@ -8,20 +8,37 @@ use App\Http\Requests\Barang\UpdateBarangRequest;
 use App\Http\Resources\BarangResource;
 use App\Models\Barang;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class BarangController extends Controller
 {
-    public function index(\Illuminate\Http\Request $request): AnonymousResourceCollection
+    public function index(Request $request): AnonymousResourceCollection
     {
-        $query = Barang::with(['kategori', 'satuan'])->orderBy('nama_barang', 'asc');
+        $query = Barang::with(['kategori', 'satuan']);
 
-        // Jika frontend minta semua data (misal untuk Dropdown PO)
+        // 1. Filter Pencarian Case-Insensitive untuk PostgreSQL
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('nama_barang', 'ILIKE', "%{$search}%")
+                  ->orWhere('kode_barang', 'ILIKE', "%{$search}%");
+            });
+        }
+
+        // 2. Filter Kategori (opsional jika frontend mengirim kategori_id)
+        if ($request->filled('kategori_id')) {
+            $query->where('kategori_id', $request->kategori_id);
+        }
+
+        // 3. Tetap Alphabetical A-Z
+        $query->orderBy('nama_barang', 'asc');
+
+        // Jika frontend minta seluruh data (misal untuk dropdown)
         if ($request->has('all') && $request->boolean('all')) {
             return BarangResource::collection($query->get());
         }
 
-        // Default pagination dinaikkan dari 10 jadi 50 atau sesuai request per_page
         $perPage = $request->get('per_page', 50);
 
         return BarangResource::collection($query->paginate($perPage));
