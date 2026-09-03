@@ -64,6 +64,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::middleware(EnsureAdmin::class)->group(function (): void {
         // CRUD Penuh / Transaksi
         Route::apiResource('penerimaan', PenerimaanController::class)->except(['index', 'show']);
+        Route::delete('/penerimaan/{id}', [PenerimaanController::class, 'destroy']);
         Route::apiResource('penggunaan', PenggunaanController::class)->except(['index', 'show']);
         Route::apiResource('kategori', KategoriController::class)->except(['index', 'show']); 
         Route::apiResource('satuan', SatuanController::class)->except(['index', 'show']);

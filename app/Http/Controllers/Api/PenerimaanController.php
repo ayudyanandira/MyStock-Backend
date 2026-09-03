@@ -171,4 +171,24 @@ public function confirmReceipt(Request $request, $id)
         $penerimaan = Penerimaan::with(['supplier', 'details.barang.satuan'])->findOrFail($id);
         return response()->json(['data' => $penerimaan]);
     }
+
+    public function destroy($id)
+    {
+        $penerimaan = Penerimaan::findOrFail($id);
+
+        // Bikin validasi: Hanya status 'pending' yang boleh dihapus
+        if ($penerimaan->status !== 'pending') {
+            return response()->json([
+                'message' => 'PO tidak dapat dihapus karena sudah diproses/selesai.'
+            ], 400);
+        }
+
+        // Hapus detail barangnya dulu, lalu hapus PO utamanya
+        $penerimaan->details()->delete(); // sesuaikan nama relasi (details/items)
+        $penerimaan->delete();
+
+        return response()->json([
+            'message' => 'PO berhasil dihapus.'
+        ], 200);
+    }
 }
